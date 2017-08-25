@@ -124,7 +124,7 @@ class PartialMerkleTreeTest : TestDependencyInjectionBase() {
         assertNull(mt.filteredLeaves.notary)
         assertNotNull(mt.filteredLeaves.timeWindow)
         assertNull(mt.filteredLeaves.privacySalt)
-        assertEquals(4, leaves.nonces.size)
+        assertEquals(4, mt.filteredComponentGroups.map { it.nonces }.flatten().size)
         assertTrue(mt.verify())
     }
 
@@ -146,18 +146,16 @@ class PartialMerkleTreeTest : TestDependencyInjectionBase() {
         assertTrue(mt.filteredLeaves.inputs.isEmpty())
         assertTrue(mt.filteredLeaves.outputs.isEmpty())
         assertTrue(mt.filteredLeaves.timeWindow == null)
-        assertTrue(mt.filteredLeaves.availableComponents.isEmpty())
-        assertTrue(mt.filteredLeaves.availableComponentHashes.isEmpty())
-        assertTrue(mt.filteredLeaves.nonces.isEmpty())
+        assertTrue(mt.filteredLeaves.availableComponentGroups.flatten().isEmpty())
+        assertTrue(mt.filteredComponentGroups.map { it.nonces }.flatten().isEmpty())
         assertFailsWith<MerkleTreeException> { mt.verify() }
 
         // Including only privacySalt still results to an empty FilteredTransaction.
         fun filterPrivacySalt(elem: Any): Boolean = elem is PrivacySalt
         val mt2 = testTx.buildFilteredTransaction(Predicate(::filterPrivacySalt))
         assertTrue(mt2.filteredLeaves.privacySalt == null)
-        assertTrue(mt2.filteredLeaves.availableComponents.isEmpty())
-        assertTrue(mt2.filteredLeaves.availableComponentHashes.isEmpty())
-        assertTrue(mt2.filteredLeaves.nonces.isEmpty())
+        assertTrue(mt.filteredLeaves.availableComponentGroups.flatten().isEmpty())
+        assertTrue(mt.filteredComponentGroups.map { it.nonces }.flatten().isEmpty())
         assertFailsWith<MerkleTreeException> { mt2.verify() }
     }
 

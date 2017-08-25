@@ -140,7 +140,7 @@ class PartialMerkleTree(val root: PartialTree) {
      * Recursive calculation of root of this partial tree.
      * Modifies usedHashes to later check for inclusion with hashes provided.
      */
-    private fun verify(node: PartialTree, usedHashes: MutableList<SecureHash>): SecureHash {
+    fun verify(node: PartialTree, usedHashes: MutableList<SecureHash>): SecureHash {
         return when (node) {
             is PartialTree.IncludedLeaf -> {
                 usedHashes.add(node.hash)
