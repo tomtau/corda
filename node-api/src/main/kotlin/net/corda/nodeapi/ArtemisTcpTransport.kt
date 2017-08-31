@@ -24,7 +24,7 @@ class ArtemisTcpTransport {
         // Restrict enabled Cipher Suites to AES and GCM as minimum for the bulk cipher.
         // Our self-generated certificates all use ECDSA for handshakes, but we allow classical RSA certificates to work
         // in case we need to use keytool certificates in some demos
-        private val CIPHER_SUITES = listOf(
+        val CIPHER_SUITES = listOf(
                 "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
                 "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
                 "TLS_RSA_WITH_AES_128_GCM_SHA256",

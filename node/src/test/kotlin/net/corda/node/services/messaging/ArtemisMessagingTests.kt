@@ -221,7 +221,8 @@ class ArtemisMessagingTests : TestDependencyInjectionBase() {
                     ServiceAffinityExecutor("ArtemisMessagingTests", 1),
                     database,
                     networkMapRegistrationFuture,
-                    MonitoringService(MetricRegistry())).apply {
+                    MonitoringService(MetricRegistry()),
+                    networkMapCache).apply {
                 config.configureWithDevSSLCertificate()
                 messagingClient = this
             }

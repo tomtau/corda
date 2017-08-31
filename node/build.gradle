@@ -97,12 +97,17 @@ dependencies {
     compile "net.sf.jopt-simple:jopt-simple:$jopt_simple_version"
 
     // Artemis: for reliable p2p message queues.
+    compile "org.apache.activemq:artemis-amqp-protocol:${artemis_version}"
     compile "org.apache.activemq:artemis-server:${artemis_version}"
     compile "org.apache.activemq:artemis-core-client:${artemis_version}"
     runtime ("org.apache.activemq:artemis-amqp-protocol:${artemis_version}") {
         // Gains our proton-j version from core module.
         exclude group: 'org.apache.qpid', module: 'proton-j'
     }
+
+    compile group: 'org.apache.activemq', name: 'artemis-jms-client', version: '2.2.0'
+    compile group: 'org.apache.activemq', name: 'artemis-jms-server', version: '2.2.0'
+    compile group: 'org.apache.qpid', name: 'qpid-jms-client', version: '0.23.0'
 
     // JAnsi: for drawing things to the terminal in nicely coloured ways.
     compile "org.fusesource.jansi:jansi:$jansi_version"

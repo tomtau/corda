@@ -1,14 +1,11 @@
 package net.corda.node.services.messaging
 
-import com.google.common.util.concurrent.ListenableFuture
 import io.netty.handler.ssl.SslHandler
-import net.corda.core.concurrent.CordaFuture
 import net.corda.core.crypto.AddressFormatException
 import net.corda.core.crypto.newSecureRandom
 import net.corda.core.crypto.parsePublicKeyBase58
 import net.corda.core.crypto.random63BitValue
 import net.corda.core.internal.ThreadBox
-import net.corda.core.internal.concurrent.openFuture
 import net.corda.core.internal.div
 import net.corda.core.internal.noneOrSingle
 import net.corda.core.internal.toX509CertHolder
@@ -110,12 +107,6 @@ class ArtemisMessagingServer(override val config: NodeConfiguration,
     private val mutex = ThreadBox(InnerState())
     private lateinit var activeMQServer: ActiveMQServer
     val serverControl: ActiveMQServerControl get() = activeMQServer.activeMQServerControl
-    private val _networkMapConnectionFuture = config.networkMapService?.let { openFuture<Unit>() }
-    /**
-     * A [ListenableFuture] which completes when the server successfully connects to the network map node. If a
-     * non-recoverable error is encountered then the Future will complete with an exception.
-     */
-    val networkMapConnectionFuture: CordaFuture<Unit>? get() = _networkMapConnectionFuture
     private var networkChangeHandle: Subscription? = null
     private val nodeRunsNetworkMapService = config.networkMapService == null
 
@@ -131,9 +122,6 @@ class ArtemisMessagingServer(override val config: NodeConfiguration,
     fun start() = mutex.locked {
         if (!running) {
             configureAndStartServer()
-            // Deploy bridge to the network map service
-            config.networkMapService?.let { deployBridge(NetworkMapAddress(it.address), it.legalName) }
-            networkChangeHandle = networkMapCache.changed.subscribe { updateBridgesOnNetworkChange(it) }
             running = true
         }
     }
@@ -156,7 +144,6 @@ class ArtemisMessagingServer(override val config: NodeConfiguration,
             registerActivationFailureListener { exception -> throw exception }
             // Some types of queue might need special preparation on our side, like dialling back or preparing
             // a lazily initialised subsystem.
-            registerPostQueueCreationCallback { deployBridgesFromNewQueue(it.toString()) }
             if (nodeRunsNetworkMapService) registerPostQueueCreationCallback { handleIpDetectionRequest(it.toString()) }
             registerPostQueueDeletionCallback { address, qName -> log.debug { "Queue deleted: $qName for $address" } }
         }
@@ -177,7 +164,8 @@ class ArtemisMessagingServer(override val config: NodeConfiguration,
         )
         val acceptors = mutableSetOf(createTcpTransport(connectionDirection, "0.0.0.0", p2pPort))
         if (rpcPort != null) {
-            acceptors.add(createTcpTransport(connectionDirection, "0.0.0.0", rpcPort, enableSSL = false))
+            // TODO: make rpc host configurable
+            acceptors.add(createTcpTransport(connectionDirection, "127.0.0.1", rpcPort, enableSSL = false))
         }
         acceptorConfigurations = acceptors
         // Enable built in message deduplication. Note we still have to do our own as the delayed commits
@@ -211,6 +199,12 @@ class ArtemisMessagingServer(override val config: NodeConfiguration,
                         name = RPCApi.RPC_CLIENT_BINDING_ADDITIONS,
                         address = NOTIFICATIONS_ADDRESS,
                         filter = RPCApi.RPC_CLIENT_BINDING_ADDITION_FILTER_EXPRESSION,
+                        durable = false
+                ),
+                queueConfig(
+                        name = BridgeManager.BRIDGE_MANAGER,
+                        address = NOTIFICATIONS_ADDRESS,
+                        filter = BridgeManager.BRIDGE_MANAGER_FILTER,
                         durable = false
                 )
         )
@@ -259,6 +253,7 @@ class ArtemisMessagingServer(override val config: NodeConfiguration,
         }
         securityRoles[VerifierApi.VERIFICATION_REQUESTS_QUEUE_NAME] = setOf(nodeInternalRole, restrictedRole(VERIFIER_ROLE, consume = true))
         securityRoles["${VerifierApi.VERIFICATION_RESPONSES_QUEUE_NAME_PREFIX}.#"] = setOf(nodeInternalRole, restrictedRole(VERIFIER_ROLE, send = true))
+        isPopulateValidatedUser = true
     }
 
     private fun restrictedRole(name: String, send: Boolean = false, consume: Boolean = false, createDurableQueue: Boolean = false,
@@ -424,22 +419,6 @@ class ArtemisMessagingServer(override val config: NodeConfiguration,
 
     private fun getBridgeName(queueName: String, hostAndPort: NetworkHostAndPort): String = "$queueName -> $hostAndPort"
 
-    // This is called on one of Artemis' background threads
-    internal fun hostVerificationFail(expectedLegalName: X500Name, errorMsg: String?) {
-        log.error(errorMsg)
-        if (expectedLegalName == config.networkMapService?.legalName) {
-            // If the peer that failed host verification was the network map node then we're in big trouble and need to bail!
-            _networkMapConnectionFuture!!.setException(IOException("${config.networkMapService} failed host verification check"))
-        }
-    }
-
-    // This is called on one of Artemis' background threads
-    internal fun onTcpConnection(peerLegalName: X500Name) {
-        if (peerLegalName == config.networkMapService?.legalName) {
-            _networkMapConnectionFuture!!.set(Unit)
-        }
-    }
-
     private fun handleIpDetectionRequest(queueName: String) {
         fun getRemoteAddress(requestId: String): String? {
             val session = activeMQServer.sessions.first {
@@ -513,10 +492,8 @@ private class VerifyingNettyConnector(configuration: MutableMap<String, Any>,
                             "misconfiguration by the remote peer or an SSL man-in-the-middle attack!"
                 }
                 X509Utilities.validateCertificateChain(session.localCertificates.last().toX509CertHolder(), *session.peerCertificates)
-                server.onTcpConnection(peerLegalName)
             } catch (e: IllegalArgumentException) {
                 connection.close()
-                server.hostVerificationFail(expectedLegalName, e.message)
                 return null
             }
         }
@@ -654,8 +631,9 @@ class NodeLoginModule : LoginModule {
                 RPC_ROLE -> authenticateRpcUser(password, username)
                 else -> throw FailedLoginException("Peer does not belong on our network")
             }
-            principals += UserPrincipal(validatedUser)
-
+            validatedUser?.let {
+                principals += UserPrincipal(validatedUser)
+            }
             loginSucceeded = true
             return loginSucceeded
         } catch (exception: FailedLoginException) {
@@ -676,10 +654,9 @@ class NodeLoginModule : LoginModule {
         return certificates.first().subjectDN.name
     }
 
-    private fun authenticatePeer(certificates: Array<X509Certificate>): String {
-        peerCertCheck.checkCertificateChain(certificates)
+    private fun authenticatePeer(certificates: Array<X509Certificate>?): String? {
         principals += RolePrincipal(PEER_ROLE)
-        return certificates.first().subjectDN.name
+        return certificates?.firstOrNull()?.subjectDN?.name
     }
 
     private fun authenticateRpcUser(password: String, username: String): String {
@@ -698,7 +675,6 @@ class NodeLoginModule : LoginModule {
         fun requireTls() = require(certificates != null) { "No TLS?" }
         return when (username) {
             PEER_USER -> {
-                requireTls()
                 PEER_ROLE
             }
             NODE_USER -> {

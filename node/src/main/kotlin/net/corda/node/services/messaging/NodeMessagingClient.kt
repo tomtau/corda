@@ -2,13 +2,14 @@ package net.corda.node.services.messaging
 
 import net.corda.core.concurrent.CordaFuture
 import net.corda.core.crypto.random63BitValue
+import net.corda.core.internal.ThreadBox
 import net.corda.core.internal.concurrent.andForget
 import net.corda.core.internal.concurrent.thenMatch
-import net.corda.core.internal.ThreadBox
 import net.corda.core.messaging.CordaRPCOps
 import net.corda.core.messaging.MessageRecipients
 import net.corda.core.messaging.RPCOps
 import net.corda.core.messaging.SingleMessageRecipient
+import net.corda.core.node.services.NetworkMapCache
 import net.corda.core.node.services.PartyInfo
 import net.corda.core.node.services.TransactionVerifierService
 import net.corda.core.serialization.SerializationDefaults
@@ -38,6 +39,7 @@ import org.apache.activemq.artemis.api.core.SimpleString
 import org.apache.activemq.artemis.api.core.client.*
 import org.apache.activemq.artemis.api.core.client.ActiveMQClient.DEFAULT_ACK_BATCH_SIZE
 import org.apache.activemq.artemis.api.core.management.ActiveMQServerControl
+import org.apache.activemq.artemis.jms.client.ActiveMQBytesMessage
 import org.bouncycastle.asn1.x500.X500Name
 import java.security.PublicKey
 import java.time.Instant
@@ -77,6 +79,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
                           val database: CordaPersistence,
                           private val networkMapRegistrationFuture: CordaFuture<Unit>,
                           val monitoringService: MonitoringService,
+                          val networkMap: NetworkMapCache,
                           advertisedAddress: NetworkHostAndPort = serverAddress
 ) : ArtemisMessagingComponent(), MessagingService {
     companion object {
@@ -86,11 +89,11 @@ class NodeMessagingClient(override val config: NodeConfiguration,
         // We should probably try to unify our notion of "topic" (really, just a string that identifies an endpoint
         // that will handle messages, like a URL) with the terminology used by underlying MQ libraries, to avoid
         // confusion.
-        private val topicProperty = SimpleString("platform-topic")
-        private val sessionIdProperty = SimpleString("session-id")
-        private val cordaVendorProperty = SimpleString("corda-vendor")
-        private val releaseVersionProperty = SimpleString("release-version")
-        private val platformVersionProperty = SimpleString("platform-version")
+        private val topicProperty = SimpleString("platform_topic")
+        private val sessionIdProperty = SimpleString("session_id")
+        private val cordaVendorProperty = SimpleString("corda_vendor")
+        private val releaseVersionProperty = SimpleString("release_version")
+        private val platformVersionProperty = SimpleString("platform_version")
         private val amqDelayMillis = System.getProperty("amq.delivery.delay.ms", "0").toInt()
         private val verifierResponseAddress = "$VERIFICATION_RESPONSES_QUEUE_NAME_PREFIX.${random63BitValue()}"
 
@@ -137,6 +140,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
         var session: ClientSession? = null
         var sessionFactory: ClientSessionFactory? = null
         var rpcServer: RPCServer? = null
+        var bridgeManager: BridgeManager? = null
         // Consumer for inbound client RPC messages.
         var verificationResponseConsumer: ClientConsumer? = null
     }
@@ -237,7 +241,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
                     log.info("Network map is complete, so removing filter from P2P consumer.")
                     try {
                         p2pConsumer!!.close()
-                    } catch(e: ActiveMQObjectClosedException) {
+                    } catch (e: ActiveMQObjectClosedException) {
                         // Ignore it: this can happen if the server has gone away before we do.
                     }
                     p2pConsumer = makeP2PConsumer(session, false)
@@ -245,6 +249,9 @@ class NodeMessagingClient(override val config: NodeConfiguration,
             }, {})
 
             rpcServer = RPCServer(rpcOps, NODE_USER, NODE_USER, locator, userService, config.myLegalName)
+
+            bridgeManager = BridgeManager(locator, serverAddress, NODE_USER, NODE_USER, networkMap, config)
+            bridgeManager!!.start()
 
             fun checkVerifierCount() {
                 if (session.queueQuery(SimpleString(VERIFICATION_REQUESTS_QUEUE_NAME)).consumerCount == 0) {
@@ -296,7 +303,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
         // It's safe to call into receive simultaneous with other threads calling send on a producer.
         val artemisMessage: ClientMessage = try {
             consumer.receive()
-        } catch(e: ActiveMQObjectClosedException) {
+        } catch (e: ActiveMQObjectClosedException) {
             null
         } ?: return false
 
@@ -428,7 +435,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
                     }
                 }
             }
-        } catch(e: Exception) {
+        } catch (e: Exception) {
             log.error("Caught exception whilst executing message handler for ${msg.topicSession}", e)
         }
         return true
@@ -449,7 +456,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
             val c = p2pConsumer ?: throw IllegalStateException("stop can't be called twice")
             try {
                 c.close()
-            } catch(e: ActiveMQObjectClosedException) {
+            } catch (e: ActiveMQObjectClosedException) {
                 // Ignore it: this can happen if the server has gone away before we do.
             }
             p2pConsumer = null
@@ -462,6 +469,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
         // Only first caller to gets running true to protect against double stop, which seems to happen in some integration tests.
         if (running) {
             state.locked {
+                bridgeManager!!.stop()
                 producer?.close()
                 producer = null
                 // Ensure any trailing messages are committed to the journal
@@ -479,7 +487,7 @@ class NodeMessagingClient(override val config: NodeConfiguration,
         messagingExecutor.fetchFrom {
             state.locked {
                 val mqAddress = getMQAddress(target)
-                val artemisMessage = session!!.createMessage(true).apply {
+                val artemisMessage = session!!.createMessage(ActiveMQBytesMessage.TYPE,true).apply {
                     putStringProperty(cordaVendorProperty, cordaVendor)
                     putStringProperty(releaseVersionProperty, releaseVersion)
                     putIntProperty(platformVersionProperty, versionInfo.platformVersion)
