@@ -5,6 +5,9 @@ import net.corda.core.crypto.DigitalSignature
 import net.corda.core.crypto.secureRandomBytes
 import net.corda.core.flows.*
 import net.corda.core.identity.Party
+import net.corda.core.identity.PartyAndCertificate
+import net.corda.core.serialization.SerializedBytes
+import net.corda.core.serialization.serialize
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.unwrap
@@ -64,11 +67,11 @@ class SwapIdentitiesHandler(val otherSide: Party, val revocationEnabled: Boolean
         val revocationEnabled = false
         progressTracker.currentStep = SENDING_KEY
         val legalIdentityAnonymous = serviceHub.keyManagementService.freshKeyAndCert(serviceHub.myInfo.legalIdentityAndCert, revocationEnabled)
-        val data = SwapIdentitiesFlow.buildDataToSign(legalIdentityAnonymous, theirNonce)
+        val serializedIdentity = SerializedBytes<PartyAndCertificate>(legalIdentityAnonymous.serialize().bytes)
+        val data = SwapIdentitiesFlow.buildDataToSign(serializedIdentity, theirNonce)
         val ourSig: DigitalSignature = serviceHub.keyManagementService.sign(data, legalIdentityAnonymous.owningKey)
-        sendAndReceive<SwapIdentitiesFlow.IdentityWithSignature>(otherSide, SwapIdentitiesFlow.IdentityWithSignature(legalIdentityAnonymous, ourSig.bytes)).unwrap { (confidentialIdentity, theirSigBytes) ->
-            val theirSig = DigitalSignature.WithKey(confidentialIdentity.owningKey, theirSigBytes)
-            SwapIdentitiesFlow.validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentity, ourNonce, theirSig)
+        sendAndReceive<SwapIdentitiesFlow.IdentityWithSignature>(otherSide, SwapIdentitiesFlow.IdentityWithSignature(serializedIdentity, ourSig.bytes)).unwrap { (confidentialIdentity, theirSigBytes) ->
+            SwapIdentitiesFlow.validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentity, ourNonce, theirSigBytes)
         }
     }
 }
