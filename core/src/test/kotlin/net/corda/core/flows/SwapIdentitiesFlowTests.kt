@@ -75,6 +75,8 @@ class SwapIdentitiesFlowTests {
         assertFailsWith<IllegalArgumentException>("Certificate subject must match counterparty's well known identity") {
             SwapIdentitiesFlow.validateAndRegisterIdentity(aliceNode.services.identityService, bob, notBobBytes, nonce, signature.bytes)
         }
+
+        mockNet.stopNodes()
     }
 
     /**
@@ -129,5 +131,7 @@ class SwapIdentitiesFlowTests {
                 SwapIdentitiesFlow.validateAndRegisterIdentity(aliceNode.services.identityService, bob, anonymousBobBytes, nonce, signature.bytes)
             }
         }
+
+        mockNet.stopNodes()
     }
 }
