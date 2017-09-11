@@ -3,6 +3,7 @@ package net.corda.java.rpc;
 import net.corda.client.rpc.CordaRPCConnection;
 import net.corda.core.contracts.Amount;
 import net.corda.core.identity.CordaX500Name;
+import net.corda.core.identity.Party;
 import net.corda.core.messaging.CordaRPCOps;
 import net.corda.core.messaging.FlowHandle;
 import net.corda.core.node.NodeInfo;
@@ -42,6 +43,7 @@ public class StandaloneCordaRPCJavaClientTest {
     private CordaRPCOps rpcProxy;
     private CordaRPCConnection connection;
     private NodeInfo notaryNode;
+    private Party notaryNodeIdentity;
 
     private NodeConfig notaryConfig = new NodeConfig(
             new CordaX500Name("Notary Service", "Zurich", "CH"),
@@ -61,6 +63,7 @@ public class StandaloneCordaRPCJavaClientTest {
         connection = notary.connect();
         rpcProxy = connection.getProxy();
         notaryNode = fetchNotaryIdentity();
+        notaryNodeIdentity = rpcProxy.nodeInfo().getLegalIdentities().get(0);
     }
 
     @After
@@ -107,7 +110,7 @@ public class StandaloneCordaRPCJavaClientTest {
 
         FlowHandle<AbstractCashFlow.Result> flowHandle = rpcProxy.startFlowDynamic(CashIssueFlow.class,
                 dollars123, OpaqueBytes.of("1".getBytes()),
-                notaryNode.getLegalIdentity());
+                notaryNodeIdentity);
         System.out.println("Started issuing cash, waiting on result");
         flowHandle.getReturnValue().get();
 

@@ -9,6 +9,7 @@ import net.corda.core.crypto.generateKeyPair
 import net.corda.core.identity.CordaX500Name
 import net.corda.core.identity.Party
 import net.corda.core.identity.PartyAndCertificate
+import net.corda.core.node.NodeInfo
 import net.corda.core.node.services.IdentityService
 import net.corda.core.utilities.*
 import net.corda.finance.contracts.asset.DUMMY_CASH_ISSUER
@@ -151,3 +152,10 @@ inline fun <reified T : Any> amqpSpecific(reason: String, function: () -> Unit) 
 } else {
     loggerFor<T>().info("Ignoring AMQP specific test, reason: $reason" )
 }
+
+/**
+ * Until we have proper handling of multiple identities per node, for tests we use the first identity as special one.
+ * TODO: Should be removed after multiple identities are introduced.
+ */
+fun NodeInfo.chooseIdentityAndCert(): PartyAndCertificate = legalIdentitiesAndCerts.first()
+fun NodeInfo.chooseIdentity(): Party = legalIdentitiesAndCerts.first().party
