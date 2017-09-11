@@ -339,8 +339,8 @@ class AttachmentClassLoaderTests : TestDependencyInjectionBase() {
         val tx = contract.generateInitial(MEGA_CORP.ref(0), 42, DUMMY_NOTARY)
         val storage = MockAttachmentStorage()
         val context = SerializationFactory.defaultFactory.defaultContext.withWhitelisted(contract.javaClass)
-                .withWhitelisted(Class.forName("net.corda.contracts.isolated.AnotherDummyContract\$State", true, child))
-                .withWhitelisted(Class.forName("net.corda.contracts.isolated.AnotherDummyContract\$Commands\$Create", true, child))
+                .withWhitelisted(Class.forName("net.corda.finance.contracts.isolated.AnotherDummyContract\$State", true, child))
+                .withWhitelisted(Class.forName("net.corda.finance.contracts.isolated.AnotherDummyContract\$Commands\$Create", true, child))
                 .withAttachmentStorage(storage)
 
         // todo - think about better way to push attachmentStorage down to serializer
