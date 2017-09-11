@@ -10,7 +10,7 @@ import net.corda.core.transactions.SignedTransaction
 import net.corda.core.transactions.TransactionBuilder
 import net.corda.core.utilities.getOrThrow
 import net.corda.core.utilities.unwrap
-import net.corda.testing.MINI_CORP_KEY
+import net.corda.testing.*
 import net.corda.testing.contracts.DUMMY_PROGRAM_ID
 import net.corda.testing.contracts.DummyContract
 import net.corda.testing.node.MockNetwork
@@ -32,11 +32,11 @@ class CollectSignaturesFlowTests {
     @Before
     fun setup() {
         mockNet = MockNetwork()
-        val nodes = mockNet.createSomeNodes(3)
-        a = nodes.partyNodes[0]
-        b = nodes.partyNodes[1]
-        c = nodes.partyNodes[2]
-        notary = nodes.notaryNode.info.notaryIdentity
+        val notaryNode = mockNet.createNotaryNode(null, DUMMY_NOTARY.name)
+        a = mockNet.createPartyNode(notaryNode.network.myAddress, ALICE.name)
+        b = mockNet.createPartyNode(notaryNode.network.myAddress, BOB.name)
+        c = mockNet.createPartyNode(notaryNode.network.myAddress, CHARLIE.name)
+        notary = notaryNode.info.notaryIdentity
         mockNet.runNetwork()
         a.ensureRegistered()
     }
