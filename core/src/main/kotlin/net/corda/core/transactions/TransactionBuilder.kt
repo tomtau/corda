@@ -10,8 +10,6 @@ import net.corda.core.internal.FlowStateMachine
 import net.corda.core.node.ServiceHub
 import net.corda.core.node.services.KeyManagementService
 import java.lang.UnsupportedOperationException
-import net.corda.core.serialization.serialize
-import java.security.KeyPair
 import net.corda.core.serialization.SerializationContext
 import net.corda.core.serialization.SerializationFactory
 import java.security.PublicKey
