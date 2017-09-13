@@ -58,7 +58,7 @@ abstract class FlowLogic<out T> {
      * Specifies our identity in the flow. With node's multiple identities we can choose which one to use for communication.
      * Defaults to the first one from [NodeInfo.legalIdentitiesAndCerts].
      */
-    val me: PartyAndCertificate get() = stateMachine.me
+    val ourIdentity: PartyAndCertificate get() = stateMachine.ourIdentity
 
     /**
      * Returns a [FlowContext] object describing the flow [otherParty] is using. With [FlowContext.flowVersion] it
