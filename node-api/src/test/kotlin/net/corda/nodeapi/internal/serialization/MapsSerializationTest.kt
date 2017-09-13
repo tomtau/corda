@@ -8,7 +8,6 @@ import net.corda.testing.amqpSpecific
 import org.assertj.core.api.Assertions
 import org.junit.Test
 import org.bouncycastle.asn1.x500.X500Name
-import java.io.NotSerializableException
 
 class MapsSerializationTest : TestDependencyInjectionBase() {
 
@@ -38,7 +37,8 @@ class MapsSerializationTest : TestDependencyInjectionBase() {
         val payload = HashMap<String, String>(smallMap)
         val wrongPayloadType = WrongPayloadType(payload)
         Assertions.assertThatThrownBy { wrongPayloadType.serialize() }
-                .isInstanceOf(NotSerializableException::class.java).hasMessageContaining("Cannot derive map type for declaredType")
+                .isInstanceOf(IllegalArgumentException::class.java).hasMessageContaining(
+                "Map type class java.util.HashMap is unstable under iteration. Suggested fix: use java.util.LinkedHashMap instead.")
     }
 
     @CordaSerializable
