@@ -92,7 +92,7 @@ class InteractiveShellTest {
         override val id: StateMachineRunId get() = throw UnsupportedOperationException()
         override val resultFuture: CordaFuture<Any?> get() = throw UnsupportedOperationException()
         override val flowInitiator: FlowInitiator get() = throw UnsupportedOperationException()
-        override val me: PartyAndCertificate get() = throw UnsupportedOperationException()
+        override val ourIdentity: PartyAndCertificate get() = throw UnsupportedOperationException()
         override fun checkFlowPermission(permissionName: String, extraAuditData: Map<String, String>) = Unit
         override fun recordAuditEvent(eventType: String, comment: String, extraAuditData: Map<String, String>) = Unit
         override fun flowStackSnapshot(flowClass: Class<out FlowLogic<*>>): FlowStackSnapshot? = null
