@@ -40,7 +40,7 @@ class Network : CordaView() {
     override val icon = FontAwesomeIcon.GLOBE
     // Inject data.
     val myIdentity by observableValue(NetworkIdentityModel::myIdentity)
-    val notaries by observableList(NetworkIdentityModel::notaries)
+    val notaries by observableList(NetworkIdentityModel::notaryNodes)
     val peers by observableList(NetworkIdentityModel::parties)
     val transactions by observableList(TransactionDataModel::partiallyResolvedTransactions)
     var centralPeer: String? = null
@@ -100,7 +100,6 @@ class Network : CordaView() {
                             copyableLabel(SimpleObjectProperty(identity.owningKey.toBase58String())).apply { minWidth = 400.0 }
                         }
                     }
-                    row("Services :") { label(node.advertisedServices.map { it.info }.joinToString(", ")) }
                     node.getWorldMapLocation()?.apply { row("Location :") { label(this@apply.description) } }
                 }
             }

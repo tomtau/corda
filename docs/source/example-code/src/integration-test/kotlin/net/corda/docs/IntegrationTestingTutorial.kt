@@ -60,7 +60,7 @@ class IntegrationTestingTutorial {
                 aliceProxy.startFlow(::CashIssueFlow,
                         i.DOLLARS,
                         issueRef,
-                        notary.nodeInfo.notaryIdentity
+                        notary.nodeInfo.legalIdentities[1] // TODO take from NetworkMapCache
                 ).returnValue
             }.transpose().getOrThrow()
             // We wait for all of the issuances to run before we start making payments

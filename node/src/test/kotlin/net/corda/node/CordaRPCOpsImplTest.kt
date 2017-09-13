@@ -102,7 +102,7 @@ class CordaRPCOpsImplTest {
 
         // Tell the monitoring service node to issue some cash
         val recipient = aliceNode.info.chooseIdentity()
-        val result = rpc.startFlow(::CashIssueFlow, Amount(quantity, GBP), ref, notaryNode.info.notaryIdentity)
+        val result = rpc.startFlow(::CashIssueFlow, Amount(quantity, GBP), ref, notaryNode.services.notaryIdentity.party)
         mockNet.runNetwork()
 
         var issueSmId: StateMachineRunId? = null
@@ -146,7 +146,7 @@ class CordaRPCOpsImplTest {
         val result = rpc.startFlow(::CashIssueFlow,
                 100.DOLLARS,
                 OpaqueBytes(ByteArray(1, { 1 })),
-                notaryNode.info.notaryIdentity
+                notaryNode.services.notaryIdentity.party
         )
 
         mockNet.runNetwork()
@@ -196,7 +196,7 @@ class CordaRPCOpsImplTest {
                         val signaturePubKeys = stx.sigs.map { it.by }.toSet()
                         // Alice and Notary signed
                         require(aliceNode.services.keyManagementService.filterMyKeys(signaturePubKeys).toList().isNotEmpty())
-                        require(notaryNode.info.notaryIdentity.owningKey.isFulfilledBy(signaturePubKeys))
+                        require(notaryNode.services.notaryIdentity.party.owningKey.isFulfilledBy(signaturePubKeys))
                     }
             )
         }
@@ -221,7 +221,7 @@ class CordaRPCOpsImplTest {
     fun `cash command by user not permissioned for cash`() {
         CURRENT_RPC_CONTEXT.set(RpcContext(User("user", "pwd", permissions = emptySet())))
         assertThatExceptionOfType(PermissionException::class.java).isThrownBy {
-            rpc.startFlow(::CashIssueFlow, Amount(100, USD), OpaqueBytes(ByteArray(1, { 1 })), notaryNode.info.notaryIdentity)
+            rpc.startFlow(::CashIssueFlow, Amount(100, USD), OpaqueBytes(ByteArray(1, { 1 })), notaryNode.services.notaryIdentity.party)
         }
     }
 

@@ -174,7 +174,7 @@ class ExplorerSimulation(val options: OptionSet) {
         setUpRPC()
         val eventGenerator = EventGenerator(
                 parties = parties.map { it.first },
-                notary = notaryNode.nodeInfo.notaryIdentity,
+                notary = notaryNode.nodeInfo.legalIdentities[1], // TODO
                 currencies = listOf(GBP, USD)
         )
         val maxIterations = 100_000
@@ -184,7 +184,8 @@ class ExplorerSimulation(val options: OptionSet) {
             for (ref in 0..1) {
                 for ((currency, issuer) in issuers) {
                     val amount = Amount(1_000_000, currency)
-                    issuer.startFlow(::CashIssueAndPaymentFlow, amount, OpaqueBytes(ByteArray(1, { ref.toByte() })), it, anonymous, notaryNode.nodeInfo.notaryIdentity).returnValue.getOrThrow()
+                    issuer.startFlow(::CashIssueAndPaymentFlow, amount, OpaqueBytes(ByteArray(1, { ref.toByte() })),
+                            it, anonymous, notaryNode.nodeInfo.legalIdentities[1]).returnValue.getOrThrow() // TODO
                 }
             }
         }
@@ -197,7 +198,7 @@ class ExplorerSimulation(val options: OptionSet) {
         setUpRPC()
         val eventGenerator = ErrorFlowsEventGenerator(
                 parties = parties.map { it.first },
-                notary = notaryNode.nodeInfo.notaryIdentity,
+                notary = notaryNode.nodeInfo.legalIdentities[1], // TODO
                 currencies = listOf(GBP, USD)
         )
         val maxIterations = 10_000

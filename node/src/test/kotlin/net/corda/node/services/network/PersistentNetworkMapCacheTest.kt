@@ -64,7 +64,6 @@ class PersistentNetworkMapCacheTest : NodeBasedTest() {
     fun `restart node with DB map cache and no network map`() {
         val alice = startNodesWithPort(listOf(ALICE), noNetworkMap = true)[0]
         val partyNodes = alice.services.networkMapCache.partyNodes
-        assert(NetworkMapService.type !in alice.info.advertisedServices.map { it.info.type })
         assertEquals(NullNetworkMapService, alice.inNodeNetworkMapService)
         assertEquals(infos.size, partyNodes.size)
         assertEquals(infos.flatMap { it.legalIdentities }.toSet(), partyNodes.flatMap { it.legalIdentities }.toSet())
@@ -75,7 +74,6 @@ class PersistentNetworkMapCacheTest : NodeBasedTest() {
         val parties = partiesList.subList(1, partiesList.size)
         val nodes = startNodesWithPort(parties, noNetworkMap = true)
         assert(nodes.all { it.inNodeNetworkMapService == NullNetworkMapService })
-        assert(nodes.all { NetworkMapService.type !in it.info.advertisedServices.map { it.info.type } })
         nodes.forEach {
             val partyNodes = it.services.networkMapCache.partyNodes
             assertEquals(infos.size, partyNodes.size)
@@ -89,7 +87,6 @@ class PersistentNetworkMapCacheTest : NodeBasedTest() {
         val parties = partiesList.subList(1, partiesList.size)
         val nodes = startNodesWithPort(parties, noNetworkMap = false)
         assert(nodes.all { it.inNodeNetworkMapService == NullNetworkMapService })
-        assert(nodes.all { NetworkMapService.type !in it.info.advertisedServices.map { it.info.type } })
         nodes.forEach {
             val partyNodes = it.services.networkMapCache.partyNodes
             assertEquals(infos.size, partyNodes.size)

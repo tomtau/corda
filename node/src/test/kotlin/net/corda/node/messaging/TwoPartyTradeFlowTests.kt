@@ -103,13 +103,13 @@ class TwoPartyTradeFlowTests {
             bobNode.internals.disableDBCloseOnStop()
 
             bobNode.database.transaction {
-                bobNode.services.fillWithSomeTestCash(2000.DOLLARS, bankNode.services, outputNotary = notaryNode.info.notaryIdentity,
+                bobNode.services.fillWithSomeTestCash(2000.DOLLARS, bankNode.services, outputNotary = notaryNode.services.notaryIdentity.party,
                         issuedBy = cashIssuer)
             }
 
             val alicesFakePaper = aliceNode.database.transaction {
                 fillUpForSeller(false, cpIssuer, aliceNode.info.chooseIdentity(),
-                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), null, notaryNode.info.notaryIdentity).second
+                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), null, notaryNode.services.notaryIdentity.party).second
             }
 
             insertFakeTransactions(alicesFakePaper, aliceNode, notaryNode, bankNode)
@@ -150,13 +150,13 @@ class TwoPartyTradeFlowTests {
             bobNode.internals.disableDBCloseOnStop()
 
             val cashStates = bobNode.database.transaction {
-                bobNode.services.fillWithSomeTestCash(2000.DOLLARS, bankNode.services, notaryNode.info.notaryIdentity, 3, 3,
+                bobNode.services.fillWithSomeTestCash(2000.DOLLARS, bankNode.services, notaryNode.services.notaryIdentity.party, 3, 3,
                             issuedBy = issuer)
                 }
 
             val alicesFakePaper = aliceNode.database.transaction {
                 fillUpForSeller(false, issuer, aliceNode.info.chooseIdentity(),
-                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), null, notaryNode.info.notaryIdentity).second
+                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), null, notaryNode.services.notaryIdentity.party).second
             }
 
             insertFakeTransactions(alicesFakePaper, aliceNode, notaryNode, bankNode)
@@ -217,12 +217,12 @@ class TwoPartyTradeFlowTests {
             mockNet.runNetwork() // Clear network map registration messages
 
             bobNode.database.transaction {
-                bobNode.services.fillWithSomeTestCash(2000.DOLLARS, bankNode.services, outputNotary = notaryNode.info.notaryIdentity,
+                bobNode.services.fillWithSomeTestCash(2000.DOLLARS, bankNode.services, outputNotary = notaryNode.services.notaryIdentity.party,
                         issuedBy = issuer)
             }
             val alicesFakePaper = aliceNode.database.transaction {
                 fillUpForSeller(false, issuer, aliceNode.info.chooseIdentity(),
-                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), null, notaryNode.info.notaryIdentity).second
+                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), null, notaryNode.services.notaryIdentity.party).second
             }
             insertFakeTransactions(alicesFakePaper, aliceNode, notaryNode, bankNode)
             val aliceFuture = runBuyerAndSeller(notaryNode, aliceNode, bobNode, "alice's paper".outputStateAndRef()).sellerResult
@@ -351,11 +351,11 @@ class TwoPartyTradeFlowTests {
             }
 
             val bobsFakeCash = fillUpForBuyer(false, issuer, AnonymousParty(bobNode.info.chooseIdentity().owningKey),
-                    notaryNode.info.notaryIdentity).second
+                    notaryNode.services.notaryIdentity.party).second
             val bobsSignedTxns = insertFakeTransactions(bobsFakeCash, bobNode, notaryNode, bankNode)
             val alicesFakePaper = aliceNode.database.transaction {
                 fillUpForSeller(false, issuer, aliceNode.info.chooseIdentity(),
-                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), attachmentID, notaryNode.info.notaryIdentity).second
+                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), attachmentID, notaryNode.services.notaryIdentity.party).second
             }
             val alicesSignedTxns = insertFakeTransactions(alicesFakePaper, aliceNode, notaryNode, bankNode)
 
@@ -457,12 +457,12 @@ class TwoPartyTradeFlowTests {
 
             val bobsKey = bobNode.services.keyManagementService.keys.single()
             val bobsFakeCash = fillUpForBuyer(false, issuer, AnonymousParty(bobsKey),
-                    notaryNode.info.notaryIdentity).second
+                    notaryNode.services.notaryIdentity.party).second
             insertFakeTransactions(bobsFakeCash, bobNode, notaryNode, bankNode)
 
             val alicesFakePaper = aliceNode.database.transaction {
                 fillUpForSeller(false, issuer, aliceNode.info.chooseIdentity(),
-                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), attachmentID, notaryNode.info.notaryIdentity).second
+                        1200.DOLLARS `issued by` bankNode.info.chooseIdentity().ref(0), attachmentID, notaryNode.services.notaryIdentity.party).second
             }
 
             insertFakeTransactions(alicesFakePaper, aliceNode, notaryNode, bankNode)
@@ -539,14 +539,14 @@ class TwoPartyTradeFlowTests {
                                   anonymous: Boolean = true): RunResult {
         val buyerFlows: Observable<out FlowLogic<*>> = buyerNode.internals.registerInitiatedFlow(BuyerAcceptor::class.java)
         val firstBuyerFiber = buyerFlows.toFuture().map { it.stateMachine }
-        val seller = SellerInitiator(buyerNode.info.chooseIdentity(), notaryNode.info, assetToSell, 1000.DOLLARS, anonymous)
+        val seller = SellerInitiator(buyerNode.info.chooseIdentity(), notaryNode.services.notaryIdentity.party, assetToSell, 1000.DOLLARS, anonymous)
         val sellerResult = sellerNode.services.startFlow(seller).resultFuture
         return RunResult(firstBuyerFiber, sellerResult, seller.stateMachine.id)
     }
 
     @InitiatingFlow
     class SellerInitiator(val buyer: Party,
-                          val notary: NodeInfo,
+                          val notary: Party,
                           val assetToSell: StateAndRef<OwnableState>,
                           val price: Amount<Currency>,
                           val anonymous: Boolean) : FlowLogic<SignedTransaction>() {
@@ -557,7 +557,7 @@ class TwoPartyTradeFlowTests {
             } else {
                 serviceHub.myInfo.chooseIdentityAndCert()
             }
-            send(buyer, TestTx(notary.notaryIdentity, price, anonymous))
+            send(buyer, TestTx(notary, price, anonymous))
             return subFlow(Seller(
                     buyer,
                     notary,
@@ -601,11 +601,11 @@ class TwoPartyTradeFlowTests {
 
         val bobsBadCash = bobNode.database.transaction {
             fillUpForBuyer(bobError, issuer, bobNode.info.chooseIdentity(),
-                    notaryNode.info.notaryIdentity).second
+                    notaryNode.services.notaryIdentity.party).second
         }
         val alicesFakePaper = aliceNode.database.transaction {
             fillUpForSeller(aliceError, issuer, aliceNode.info.chooseIdentity(),
-                    1200.DOLLARS `issued by` issuer, null, notaryNode.info.notaryIdentity).second
+                    1200.DOLLARS `issued by` issuer, null, notaryNode.services.notaryIdentity.party).second
         }
 
         insertFakeTransactions(bobsBadCash, bobNode, notaryNode, bankNode)

@@ -24,19 +24,11 @@ data class ServiceEntry(val info: ServiceInfo, val identity: PartyAndCertificate
 data class NodeInfo(val addresses: List<NetworkHostAndPort>,
                     val legalIdentitiesAndCerts: List<PartyAndCertificate>,
                     val platformVersion: Int,
-                    val advertisedServices: List<ServiceEntry> = emptyList(),
                     val serial: Long
 ) {
     init {
         require(legalIdentitiesAndCerts.isNotEmpty()) { "Node should have at least one legal identity" }
     }
-
-    // TODO This part will be removed with services removal.
-    val notaryIdentity: Party get() = advertisedServices.single { it.info.type.isNotary() }.identity.party
-    fun serviceIdentities(type: ServiceType): List<Party> {
-        return advertisedServices.mapNotNull { if (it.info.type.isSubTypeOf(type)) it.identity.party else null }
-    }
-
     /**
      * Uses node's owner X500 name to infer the node's location. Used in Explorer in map view.
      */

@@ -139,7 +139,7 @@ val crossCashTest = LoadTest<CrossCashCommand, CrossCashState>(
                                 }
                             }
                             val command = Generator.frequency(
-                                    listOf(1.0 to generateIssue(10000, USD, notary.info.notaryIdentity, possibleRecipients)) + moves + exits
+                                    listOf(1.0 to generateIssue(10000, USD, notary.info.legalIdentities[1], possibleRecipients)) + moves + exits // TODO notary choice
                             )
                             command.map { CrossCashCommand(it, nodeMap[node.mainIdentity]!!) }
                         }

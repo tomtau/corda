@@ -32,7 +32,7 @@ class ManualFinalityFlowTests {
         nodeA = nodes.partyNodes[0]
         nodeB = nodes.partyNodes[1]
         nodeC = nodes.partyNodes[2]
-        notary = nodes.notaryNode.info.notaryIdentity
+        notary = nodes.notaryNode.info.legalIdentities.first()
         mockNet.runNetwork()
         nodeA.internals.ensureRegistered()
     }

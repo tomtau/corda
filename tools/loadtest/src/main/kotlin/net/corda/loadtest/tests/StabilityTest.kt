@@ -52,7 +52,7 @@ object StabilityTest {
                 // Self issue cash is fast, its ok to flood the node with this command.
                 val generateIssue =
                         simpleNodes.map { issuer ->
-                            SelfIssueCommand(IssueAndPaymentRequest(Amount(100000, USD), OpaqueBytes.of(0), issuer.mainIdentity, notary.info.notaryIdentity, anonymous = true), issuer)
+                            SelfIssueCommand(IssueAndPaymentRequest(Amount(100000, USD), OpaqueBytes.of(0), issuer.mainIdentity, notary.info.legalIdentities[1], anonymous = true), issuer)
                         }
                 Generator.pure(List(replication) { generateIssue }.flatten())
             },

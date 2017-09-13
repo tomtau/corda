@@ -54,8 +54,8 @@ class ValidatingNotaryServiceTests {
     @Test
     fun `should report error for invalid transaction dependency`() {
         val stx = run {
-            val inputState = issueInvalidState(clientNode, notaryNode.info.notaryIdentity)
-            val tx = TransactionBuilder(notaryNode.info.notaryIdentity)
+            val inputState = issueInvalidState(clientNode, notaryNode.services.notaryIdentity.party)
+            val tx = TransactionBuilder(notaryNode.services.notaryIdentity.party)
                     .addInputState(inputState)
                     .addCommand(dummyCommand(clientNode.info.chooseIdentity().owningKey))
             clientNode.services.signInitialTransaction(tx)
@@ -75,7 +75,7 @@ class ValidatingNotaryServiceTests {
             val inputState = issueState(clientNode)
 
             val command = Command(DummyContract.Commands.Move(), expectedMissingKey)
-            val tx = TransactionBuilder(notaryNode.info.notaryIdentity).withItems(inputState, command)
+            val tx = TransactionBuilder(notaryNode.services.notaryIdentity.party).withItems(inputState, command)
             clientNode.services.signInitialTransaction(tx)
         }
 
@@ -98,7 +98,7 @@ class ValidatingNotaryServiceTests {
     }
 
     fun issueState(node: StartedNode<*>): StateAndRef<*> {
-        val tx = DummyContract.generateInitial(Random().nextInt(), notaryNode.info.notaryIdentity, node.info.chooseIdentity().ref(0))
+        val tx = DummyContract.generateInitial(Random().nextInt(), notaryNode.services.notaryIdentity.party, node.info.chooseIdentity().ref(0))
         val signedByNode = node.services.signInitialTransaction(tx)
         val stx = notaryNode.services.addSignature(signedByNode, notaryNode.services.notaryIdentityKey)
         node.services.recordTransactions(stx)

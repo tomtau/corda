@@ -103,13 +103,14 @@ class InMemoryMessagingNetwork(
      *
      * @param persistenceTx a lambda to wrap message handling in a transaction if necessary. Defaults to a no-op.
      */
+    // TODO clean it up, does it have to be exposed as API?
     @Synchronized
     fun createNode(manuallyPumped: Boolean,
                    executor: AffinityExecutor,
-                   advertisedServices: List<ServiceEntry>,
+                   notaryService: ServiceEntry?,
                    database: CordaPersistence): Pair<PeerHandle, MessagingServiceBuilder<InMemoryMessaging>> {
         check(counter >= 0) { "In memory network stopped: please recreate." }
-        val builder = createNodeWithID(manuallyPumped, counter, executor, advertisedServices, database = database) as Builder
+        val builder = createNodeWithID(manuallyPumped, counter, executor, notaryService, database = database) as Builder
         counter++
         val id = builder.id
         return Pair(id, builder)
@@ -127,14 +128,14 @@ class InMemoryMessagingNetwork(
             manuallyPumped: Boolean,
             id: Int,
             executor: AffinityExecutor,
-            advertisedServices: List<ServiceEntry>,
+            notaryService: ServiceEntry?,
             description: CordaX500Name = CordaX500Name(organisation = "In memory node $id", locality = "London", country = "UK"),
             database: CordaPersistence)
             : MessagingServiceBuilder<InMemoryMessaging> {
         val peerHandle = PeerHandle(id, description)
         peersMapping[peerHandle.description] = peerHandle // Assume that the same name - the same entity in MockNetwork.
-        advertisedServices.forEach { if(it.identity.owningKey !is CompositeKey) peersMapping[it.identity.name] = peerHandle }
-        val serviceHandles = advertisedServices.map { ServiceHandle(it.identity.party) }
+        notaryService?.let { if(it.identity.owningKey !is CompositeKey) peersMapping[it.identity.name] = peerHandle } // TODO change that
+        val serviceHandles = notaryService?.let { listOf(ServiceHandle(it.identity.party)) } ?: emptyList() //TODO only notary can be distributed? FIX
         return Builder(manuallyPumped, peerHandle, serviceHandles, executor, database = database)
     }
 
