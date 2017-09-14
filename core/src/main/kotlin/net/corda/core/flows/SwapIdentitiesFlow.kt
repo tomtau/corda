@@ -12,6 +12,7 @@ import net.corda.core.serialization.SerializedBytes
 import net.corda.core.serialization.deserialize
 import net.corda.core.serialization.serialize
 import net.corda.core.utilities.ProgressTracker
+import net.corda.core.utilities.UntrustworthyData
 import net.corda.core.utilities.unwrap
 import java.io.ByteArrayOutputStream
 import java.security.SignatureException
@@ -40,19 +41,22 @@ class SwapIdentitiesFlow(val otherSide: Party,
             return buffer.toByteArray()
         }
 
+        @Throws(SwapIdentitiesException::class)
         fun validateAndRegisterIdentity(identityService: IdentityService,
                                         otherSide: Party,
                                         anonymousOtherSideBytes: SerializedBytes<PartyAndCertificate>,
                                         nonce: ByteArray,
                                         sigBytes: ByteArray): PartyAndCertificate {
             val anonymousOtherSide: PartyAndCertificate = anonymousOtherSideBytes.deserialize()
-            require(anonymousOtherSide.name == otherSide.name) { "Certificate subject must match counterparty's well known identity" }
+            if (anonymousOtherSide.name != otherSide.name) {
+                throw SwapIdentitiesException("Certificate subject must match counterparty's well known identity.")
+            }
             val signature = DigitalSignature.WithKey(anonymousOtherSide.owningKey, sigBytes)
             val sigWithKey = DigitalSignature.WithKey(anonymousOtherSide.owningKey, signature.bytes)
             try {
                 sigWithKey.verify(buildDataToSign(anonymousOtherSideBytes, nonce))
             } catch(ex: SignatureException) {
-                throw IllegalArgumentException("Signature does not match the given identity and nonce")
+                throw SwapIdentitiesException("Signature does not match the given identity and nonce.", ex)
             }
             // Validate then store their identity so that we can prove the key in the transaction is owned by the
             // counterparty.
@@ -72,10 +76,7 @@ class SwapIdentitiesFlow(val otherSide: Party,
         identities.put(serviceHub.myInfo.legalIdentity, legalIdentityAnonymous.party.anonymise())
         if (otherSide != serviceHub.myInfo.legalIdentity) {
             val ourNonce = secureRandomBytes(NONCE_SIZE_BYTES)
-            val theirNonce = sendAndReceive<ByteArray>(otherSide, ourNonce).unwrap { nonce ->
-                require(nonce.size == NONCE_SIZE_BYTES)
-                nonce
-            }
+            val theirNonce = sendAndReceive<ByteArray>(otherSide, ourNonce).unwrap(NonceVerifier)
             val data = buildDataToSign(serializedIdentity, theirNonce)
             val ourSig: DigitalSignature = serviceHub.keyManagementService.sign(data, legalIdentityAnonymous.owningKey)
             val anonymousOtherSide = sendAndReceive<IdentityWithSignature>(otherSide, IdentityWithSignature(serializedIdentity, ourSig.bytes)).unwrap { (confidentialIdentityBytes, theirSigBytes) ->
@@ -89,4 +90,16 @@ class SwapIdentitiesFlow(val otherSide: Party,
 
     @CordaSerializable
     data class IdentityWithSignature(val identity: SerializedBytes<PartyAndCertificate>, val signature: ByteArray)
+
+    object NonceVerifier : UntrustworthyData.Validator<ByteArray, ByteArray> {
+        override fun validate(data: ByteArray): ByteArray {
+            if (data.size == NONCE_SIZE_BYTES)
+                return data
+            else
+                throw SwapIdentitiesException("Nonce must be $NONCE_SIZE_BYTES bytes.")
+        }
+    }
 }
+
+open class SwapIdentitiesException @JvmOverloads constructor(message: String, cause: Throwable? = null)
+    : FlowException(message, cause)

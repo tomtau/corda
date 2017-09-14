@@ -60,10 +60,7 @@ class SwapIdentitiesHandler(val otherSide: Party, val revocationEnabled: Boolean
     @Suspendable
     override fun call(): Unit {
         val ourNonce = secureRandomBytes(SwapIdentitiesFlow.NONCE_SIZE_BYTES)
-        val theirNonce = sendAndReceive<ByteArray>(otherSide, ourNonce).unwrap { nonce ->
-            require(nonce.size == SwapIdentitiesFlow.NONCE_SIZE_BYTES)
-            nonce
-        }
+        val theirNonce = sendAndReceive<ByteArray>(otherSide, ourNonce).unwrap(SwapIdentitiesFlow.NonceVerifier)
         val revocationEnabled = false
         progressTracker.currentStep = SENDING_KEY
         val legalIdentityAnonymous = serviceHub.keyManagementService.freshKeyAndCert(serviceHub.myInfo.legalIdentityAndCert, revocationEnabled)
