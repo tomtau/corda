@@ -1100,7 +1100,7 @@ class VaultQueryTests : TestDependencyInjectionBase() {
             val states = result.states
             val metadata = result.statesMetadata
 
-            for (i in 0..states.size - 1) {
+            for (i in 0 until states.size) {
                 println("${states[i].ref} : ${metadata[i].contractStateClassName}, ${metadata[i].status}, ${metadata[i].consumedTime}")
             }
 

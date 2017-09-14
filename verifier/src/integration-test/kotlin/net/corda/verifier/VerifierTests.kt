@@ -24,7 +24,7 @@ class VerifierTests {
         var currentLedger = GeneratedLedger.empty
         val transactions = ArrayList<WireTransaction>()
         val random = SplittableRandom()
-        for (i in 0..number - 1) {
+        for (i in 0 until number) {
             val (tx, ledger) = currentLedger.transactionGenerator.generateOrFail(random)
             transactions.add(tx)
             currentLedger = ledger

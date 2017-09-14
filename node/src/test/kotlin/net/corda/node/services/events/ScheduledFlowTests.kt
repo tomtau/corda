@@ -143,7 +143,7 @@ class ScheduledFlowTests {
     fun `run a whole batch of scheduled flows`() {
         val N = 100
         val futures = mutableListOf<CordaFuture<*>>()
-        for (i in 0..N - 1) {
+        for (i in 0 until N) {
             futures.add(nodeA.services.startFlow(InsertInitialStateFlow(nodeB.info.legalIdentity)).resultFuture)
             futures.add(nodeB.services.startFlow(InsertInitialStateFlow(nodeA.info.legalIdentity)).resultFuture)
         }
