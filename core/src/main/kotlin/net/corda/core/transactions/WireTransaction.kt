@@ -18,6 +18,10 @@ import java.util.function.Predicate
  * by a [SignedTransaction] that carries the signatures over this payload.
  * The identity of the transaction is the Merkle tree root of its components (see [MerkleTree]).
  *
+ * For privacy purposes, each part of a transaction should be accompanied by a nonce.
+ * To avoid storing a random number (nonce) per component, an initial [privacySalt] is the sole value utilised,
+ * so that all component nonces are deterministically computed.
+ *
  * A few notes about backwards compatibility:
  * A wire transaction can be backwards compatible, in the sense that if an old client receives a [componentGroups] with
  * more elements than expected, it will normally deserialise the required objects and omit any checks in the optional
@@ -34,7 +38,7 @@ import java.util.function.Predicate
  * </ul></p>
  */
 @CordaSerializable
-data class WireTransaction(val componentGroups: List<ComponentGroup>, override val privacySalt: PrivacySalt = PrivacySalt()) : CoreTransaction(), TraversableTransaction {
+class WireTransaction(componentGroups: List<ComponentGroup>, val privacySalt: PrivacySalt = PrivacySalt()) : TraversableTransaction(componentGroups) {
 
     @Deprecated("Required only in some unit-tests and for backwards compatibility purposes.", ReplaceWith("WireTransaction(val componentGroups: List<ComponentGroup>, override val privacySalt: PrivacySalt)"), DeprecationLevel.WARNING)
     constructor(inputs: List<StateRef>,
@@ -49,41 +53,6 @@ data class WireTransaction(val componentGroups: List<ComponentGroup>, override v
 
     init {
         check(ComponentGroupEnum.values().size <= componentGroups.size  ) { "Malformed WireTransaction, expected at least ${ComponentGroupEnum.values().size} tx component types, but received ${componentGroups.size}" }
-    }
-
-    /** Hashes of the ZIP/JAR files that are needed to interpret the contents of this wire transaction. */
-    override val attachments: List<SecureHash> = deserialiseComponentGroup(ATTACHMENTS_GROUP, { SerializedBytes<SecureHash>(it).deserialize() })
-
-    /** Pointers to the input states on the ledger, identified by (tx identity hash, output index). */
-    override val inputs: List<StateRef> = deserialiseComponentGroup(INPUTS_GROUP, { SerializedBytes<StateRef>(it).deserialize() })
-
-    override val outputs: List<TransactionState<ContractState>> = deserialiseComponentGroup(OUTPUTS_GROUP, { SerializedBytes<TransactionState<ContractState>>(it).deserialize(context = SerializationFactory.defaultFactory.defaultContext.withAttachmentsClassLoader(attachments)) })
-
-    /** Ordered list of ([CommandData], [PublicKey]) pairs that instruct the contracts what to do. */
-    override val commands: List<Command<*>> = deserialiseComponentGroup(COMMANDS_GROUP, { SerializedBytes<Command<*>>(it).deserialize(context = SerializationFactory.defaultFactory.defaultContext.withAttachmentsClassLoader(attachments)) })
-
-    override val notary: Party? = let {
-        val notaries: List<Party> = deserialiseComponentGroup(NOTARY_GROUP, { SerializedBytes<Party>(it).deserialize() })
-        check(notaries.size <= 1) { "Invalid Transaction. More than 1 notary party detected." }
-        if (notaries.isNotEmpty()) notaries[0] else null
-    }
-    override val timeWindow: TimeWindow? = let {
-        val timeWindows: List<TimeWindow> = deserialiseComponentGroup(TIMEWINDOW_GROUP, { SerializedBytes<TimeWindow>(it).deserialize() })
-        check(timeWindows.size <= 1) { "Invalid Transaction. More than 1 time-window detected." }
-        if (timeWindows.isNotEmpty()) timeWindows[0] else null
-    }
-
-    // Helper function to return a meaningful exception if deserialisation of a component fails.
-    private fun <T> deserialiseComponentGroup(groupEnum: ComponentGroupEnum, deserialiseBody: (ByteArray) -> T): List<T> {
-        return componentGroups[groupEnum.ordinal].components.mapIndexed { internalIndex, component ->
-            try {
-                deserialiseBody(component.bytes)
-            } catch (e: MissingAttachmentsException) {
-                throw e
-            } catch (e: Exception) {
-                throw Exception("Malformed WireTransaction, $groupEnum at index $internalIndex cannot be deserialised", e)
-            }
-        }
     }
 
     init {
@@ -156,6 +125,7 @@ data class WireTransaction(val componentGroups: List<ComponentGroup>, override v
         return FilteredTransaction.buildFilteredTransaction(this, filtering)
     }
 
+    // TODO: Some crypto-related research on whether we need privacySalt to be a leaf.
     /**
      * Builds whole Merkle tree for a transaction.
      */
@@ -167,8 +137,8 @@ data class WireTransaction(val componentGroups: List<ComponentGroup>, override v
      * see the user-guide section "Transaction tear-offs" to learn more about this topic.
      */
     @VisibleForTesting
-    val groupsMerkleRoots: List<SecureHash> get() = componentGroups.mapIndexed { index, (components) ->
-        if (components.isNotEmpty()) {
+    val groupsMerkleRoots: List<SecureHash> get() = componentGroups.mapIndexed { index, it ->
+        if (it.components.isNotEmpty()) {
             MerkleTree.getMerkleTree(availableComponentHashes[index]).hash
         } else {
             SecureHash.zeroHash
@@ -184,16 +154,6 @@ data class WireTransaction(val componentGroups: List<ComponentGroup>, override v
     fun checkSignature(sig: TransactionSignature) {
         require(commands.any { it.signers.any { sig.by in it.keys } }) { "Signature key doesn't match any command" }
         sig.verify(id)
-    }
-
-    override fun toString(): String {
-        val buf = StringBuilder()
-        buf.appendln("Transaction:")
-        for (input in inputs) buf.appendln("${Emoji.rightArrow}INPUT:      $input")
-        for ((data) in outputs) buf.appendln("${Emoji.leftArrow}OUTPUT:     $data")
-        for (command in commands) buf.appendln("${Emoji.diamond}COMMAND:    $command")
-        for (attachment in attachments) buf.appendln("${Emoji.paperclip}ATTACHMENT: $attachment")
-        return buf.toString()
     }
 
     internal companion object {
@@ -217,21 +177,47 @@ data class WireTransaction(val componentGroups: List<ComponentGroup>, override v
         }
     }
 
-    /** Calculate nonces for every transaction component, including new fields (due to backwards compatibility support) we cannot process. */
+    /** Calculate nonces for every transaction component, including new fields (due to backwards compatibility support) we cannot process.
+     * Nonce are computed in the following way:
+     * nonce1 = H(salt || path_for_1st_component)
+     * nonce2 = H(salt || path_for_2nd_component)
+     * etc.
+     * Thus, all of the nonces are "independent" in the sense that knowing one or some of them, you can learn
+     * nothing about the rest.
+     */
     val availableComponentNonces: List<List<SecureHash>>
-        get() = componentGroups.mapIndexed { componentGroupIndex, (components) -> components.mapIndexed {
+        get() = componentGroups.mapIndexed { componentGroupIndex, it -> it.components.mapIndexed {
             internalIndex, internalIt -> serializedHash(internalIt, privacySalt, componentGroupIndex, internalIndex) }
         }
 
     /**
-     * Calculate hasehs for every transaction component. These will be used to build the full Merkle tree.
+     * Calculate hashes for every transaction component. These will be used to build the full Merkle tree.
      * The root of the tree is the transaction identifier. The tree structure is helpful for privacy, please
      * see the user-guide section "Transaction tear-offs" to learn more about this topic.
      */
     val availableComponentHashes: List<List<SecureHash>>
-        get() = componentGroups.mapIndexed { componentGroupIndex, (components) -> components.mapIndexed {
+        get() = componentGroups.mapIndexed { componentGroupIndex, it -> it.components.mapIndexed {
             internalIndex, internalIt -> serializedHash(internalIt, availableComponentNonces[componentGroupIndex][internalIndex]) }
         }
+
+    override fun toString(): String {
+        val buf = StringBuilder()
+        buf.appendln("Transaction:")
+        for (input in inputs) buf.appendln("${Emoji.rightArrow}INPUT:      $input")
+        for ((data) in outputs) buf.appendln("${Emoji.leftArrow}OUTPUT:     $data")
+        for (command in commands) buf.appendln("${Emoji.diamond}COMMAND:    $command")
+        for (attachment in attachments) buf.appendln("${Emoji.paperclip}ATTACHMENT: $attachment")
+        return buf.toString()
+    }
+
+    override fun equals(other: Any?): Boolean {
+        if (other is WireTransaction) {
+            return (this.id == other.id)
+        }
+        return false
+    }
+
+    override fun hashCode(): Int = id.hashCode()
 }
 
 // TODO: change to ComponentGroup(val enumGroup: ComponentGroupEnum, val components: List<OpaqueBytes>) when enum evolvability is supported.
@@ -241,4 +227,4 @@ data class WireTransaction(val componentGroups: List<ComponentGroup>, override v
  * a group for all attachments (if there are any) etc.
  */
 @CordaSerializable
-data class ComponentGroup(val components: List<OpaqueBytes>)
+open class ComponentGroup(open val components: List<OpaqueBytes>)

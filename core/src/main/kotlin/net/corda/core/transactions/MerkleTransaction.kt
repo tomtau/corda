@@ -9,32 +9,34 @@ import java.security.PublicKey
 import java.util.function.Predicate
 
 /**
- * Implemented by [WireTransaction] and [FilteredLeaves]. A TraversableTransaction allows you to iterate
+ * Implemented by [WireTransaction] and [FilteredTransaction]. A TraversableTransaction allows you to iterate
  * over the flattened components of the underlying transaction structure, taking into account that some
  * may be missing in the case of this representing a "torn" transaction. Please see the user guide section
  * "Transaction tear-offs" to learn more about this feature.
- *
- * The [availableComponentGroups] property is used for calculation of the transaction's [MerkleTree], which is in
- * turn used to derive the ID hash.
  */
-interface TraversableTransaction {
-    val inputs: List<StateRef>
-    val attachments: List<SecureHash>
-    val outputs: List<TransactionState<ContractState>>
-    val commands: List<Command<*>>
-    val notary: Party?
-    val timeWindow: TimeWindow?
-    /**
-     * For privacy purposes, each part of a transaction should be accompanied by a nonce.
-     * To avoid storing a random number (nonce) per component, an initial "salt" is the sole value utilised,
-     * so that all component nonces are deterministically computed in the following way:
-     * nonce1 = H(salt || 1)
-     * nonce2 = H(salt || 2)
-     *
-     * Thus, all of the nonces are "independent" in the sense that knowing one or some of them, you can learn
-     * nothing about the rest.
-     */
-    val privacySalt: PrivacySalt?
+abstract class TraversableTransaction(open val componentGroups: List<ComponentGroup>) : CoreTransaction() {
+    /** Hashes of the ZIP/JAR files that are needed to interpret the contents of this wire transaction. */
+    val attachments: List<SecureHash> = deserialiseComponentGroup(ComponentGroupEnum.ATTACHMENTS_GROUP, { SerializedBytes<SecureHash>(it).deserialize() })
+
+    /** Pointers to the input states on the ledger, identified by (tx identity hash, output index). */
+    override val inputs: List<StateRef> = deserialiseComponentGroup(ComponentGroupEnum.INPUTS_GROUP, { SerializedBytes<StateRef>(it).deserialize() })
+
+    override val outputs: List<TransactionState<ContractState>> = deserialiseComponentGroup(ComponentGroupEnum.OUTPUTS_GROUP, { SerializedBytes<TransactionState<ContractState>>(it).deserialize(context = SerializationFactory.defaultFactory.defaultContext.withAttachmentsClassLoader(attachments)) })
+
+    /** Ordered list of ([CommandData], [PublicKey]) pairs that instruct the contracts what to do. */
+    val commands: List<Command<*>> = deserialiseComponentGroup(ComponentGroupEnum.COMMANDS_GROUP, { SerializedBytes<Command<*>>(it).deserialize(context = SerializationFactory.defaultFactory.defaultContext.withAttachmentsClassLoader(attachments)) })
+
+    override val notary: Party? = let {
+            val notaries: List<Party> = deserialiseComponentGroup(ComponentGroupEnum.NOTARY_GROUP, { SerializedBytes<Party>(it).deserialize() })
+            check(notaries.size <= 1) { "Invalid Transaction. More than 1 notary party detected." }
+            if (notaries.isNotEmpty()) notaries[0] else null
+        }
+
+    val timeWindow: TimeWindow? = let {
+            val timeWindows: List<TimeWindow> = deserialiseComponentGroup(ComponentGroupEnum.TIMEWINDOW_GROUP, { SerializedBytes<TimeWindow>(it).deserialize() })
+            check(timeWindows.size <= 1) { "Invalid Transaction. More than 1 time-window detected." }
+            if (timeWindows.isNotEmpty()) timeWindows[0] else null
+        }
 
     /**
      * Returns a list of all the component groups that are present in the transaction, excluding the privacySalt,
@@ -53,42 +55,18 @@ interface TraversableTransaction {
             timeWindow?.let { result += listOf(it) }
             return result
         }
-}
 
-/**
- * Class that holds filtered leaves for a partial Merkle transaction. We assume mixed leaf types, notice that every
- * field from [WireTransaction] can be used in [PartialMerkleTree] calculation, except for the privacySalt.
- * A list of nonces is also required to (re)construct component hashes.
- */
-@CordaSerializable
-data class FilteredLeaves(
-        override val inputs: List<StateRef>,
-        override val attachments: List<SecureHash>,
-        override val outputs: List<TransactionState<ContractState>>,
-        override val commands: List<Command<*>>,
-        override val notary: Party?,
-        override val timeWindow: TimeWindow?
-) : TraversableTransaction {
-
-    /**
-     * PrivacySalt should be always null for FilteredLeaves, because making it accidentally visible would expose all
-     * nonces (including filtered out components) causing privacy issues, see [serializedHash] and
-     * [TraversableTransaction.privacySalt].
-     */
-    override val privacySalt: PrivacySalt? get() = null
-
-    /**
-     * Function that checks the whole filtered structure.
-     * Force type checking on a structure that we obtained, so we don't sign more than expected.
-     * Example: Oracle is implemented to check only for commands, if it gets an attachment and doesn't expect it - it can sign
-     * over a transaction with the attachment that wasn't verified. Of course it depends on how you implement it, but else -> false
-     * should solve a problem with possible later extensions to WireTransaction.
-     * @param checkingFun function that performs type checking on the structure fields and provides verification logic accordingly.
-     * @returns false if no elements were matched on a structure or checkingFun returned false.
-     */
-    fun checkWithFun(checkingFun: (Any) -> Boolean): Boolean {
-        val checkList = availableComponentGroups.flatten().map { checkingFun(it) }
-        return (!checkList.isEmpty()) && checkList.all { it }
+    // Helper function to return a meaningful exception if deserialisation of a component fails.
+    private fun <T> deserialiseComponentGroup(groupEnum: ComponentGroupEnum, deserialiseBody: (ByteArray) -> T): List<T> {
+        return componentGroups[groupEnum.ordinal].components.mapIndexed { internalIndex, component ->
+            try {
+                deserialiseBody(component.bytes)
+            } catch (e: MissingAttachmentsException) {
+                throw e
+            } catch (e: Exception) {
+                throw Exception("Malformed transaction, $groupEnum at index $internalIndex cannot be deserialised", e)
+            }
+        }
     }
 }
 
@@ -100,56 +78,13 @@ data class FilteredLeaves(
  */
 @CordaSerializable
 class FilteredTransaction private constructor(
-        val id: SecureHash,
+        override val id: SecureHash,
         val filteredComponentGroups: List<FilteredComponentGroup>,
         private val partialMerkleTree: PartialMerkleTree
-) {
+) : TraversableTransaction(filteredComponentGroups) {
 
     init {
         check(ComponentGroupEnum.values().size <= filteredComponentGroups.size  ) { "Malformed FilteredTransaction, expected at least ${ComponentGroupEnum.values().size} tx component types, but received ${filteredComponentGroups.size}" }
-    }
-
-    val filteredLeaves: FilteredLeaves = buildFilteredLeaves()
-
-    // TODO: Consider avoiding duplicated code of this and the WireTransaction related construction.
-    private fun buildFilteredLeaves(): FilteredLeaves {
-        /** Hashes of the ZIP/JAR files that are needed to interpret the contents of this wire transaction. */
-        val attachments: List<SecureHash> = deserialiseFilteredComponentGroup(ComponentGroupEnum.ATTACHMENTS_GROUP, { SerializedBytes<SecureHash>(it).deserialize() })
-
-        /** Pointers to the input states on the ledger, identified by (tx identity hash, output index). */
-        val inputs: List<StateRef> = deserialiseFilteredComponentGroup(ComponentGroupEnum.INPUTS_GROUP, { SerializedBytes<StateRef>(it).deserialize() })
-
-        val outputs: List<TransactionState<ContractState>> = deserialiseFilteredComponentGroup(ComponentGroupEnum.OUTPUTS_GROUP, { SerializedBytes<TransactionState<ContractState>>(it).deserialize(context = SerializationFactory.defaultFactory.defaultContext.withAttachmentsClassLoader(attachments)) })
-
-        /** Ordered list of ([CommandData], [PublicKey]) pairs that instruct the contracts what to do. */
-        val commands: List<Command<*>> = deserialiseFilteredComponentGroup(ComponentGroupEnum.COMMANDS_GROUP, { SerializedBytes<Command<*>>(it).deserialize(context = SerializationFactory.defaultFactory.defaultContext.withAttachmentsClassLoader(attachments)) })
-
-        val notary: Party? = let {
-            val notaries: List<Party> = deserialiseFilteredComponentGroup(ComponentGroupEnum.NOTARY_GROUP, { SerializedBytes<Party>(it).deserialize() })
-            check(notaries.size <= 1) { "Invalid Transaction. More than 1 notary party detected." }
-            if (notaries.isNotEmpty()) notaries[0] else null
-        }
-
-        val timeWindow: TimeWindow? = let {
-            val timeWindows: List<TimeWindow> = deserialiseFilteredComponentGroup(ComponentGroupEnum.TIMEWINDOW_GROUP, { SerializedBytes<TimeWindow>(it).deserialize() })
-            check(timeWindows.size <= 1) { "Invalid Transaction. More than 1 time-window detected." }
-            if (timeWindows.isNotEmpty()) timeWindows[0] else null
-        }
-
-        return FilteredLeaves(inputs, attachments, outputs, commands, notary, timeWindow)
-    }
-
-    // Helper function to return a meaningful exception if deserialisation of a component fails.
-    private fun <T> deserialiseFilteredComponentGroup(groupEnum: ComponentGroupEnum, deserialiseBody: (ByteArray) -> T): List<T> {
-        return filteredComponentGroups[groupEnum.ordinal].components.mapIndexed { internalIndex, component ->
-            try {
-                deserialiseBody(component.bytes)
-            } catch (e: MissingAttachmentsException) {
-                throw e // TODO: do we need a more descriptive error handling?
-            } catch (e: Exception) {
-                throw Exception("Malformed FilteredTransaction, $groupEnum at index $internalIndex cannot be deserialised", e)
-            }
-        }
     }
 
     companion object {
@@ -171,7 +106,7 @@ class FilteredTransaction private constructor(
          * Construction of partial transaction from [WireTransaction] based on filtering.
          * Note that list of nonces to be sent is updated on the fly, based on the index of the filtered tx component.
          * @param filtering filtering over the whole WireTransaction
-         * @returns FilteredLeaves used in PartialMerkleTree calculation and verification.
+         * @returns a list of [FilteredComponentGroup] used in PartialMerkleTree calculation and verification.
          */
         private fun filterWithFun(wtx: WireTransaction, filtering: Predicate<Any>): List<FilteredComponentGroup> {
 
@@ -227,9 +162,6 @@ class FilteredTransaction private constructor(
                 return filteredComponentGroups
             }
 
-            // TODO: We should have a warning (require) if all leaves (excluding salt) are visible after filtering.
-            //      Consider the above after refactoring FilteredTransaction to implement TraversableTransaction,
-            //      so that a WireTransaction can be used when required to send a full tx (e.g. RatesFixFlow in Oracles).
             return createFilteredComponentGroups()
         }
     }
@@ -246,6 +178,20 @@ class FilteredTransaction private constructor(
         val groupHashes = filteredComponentGroups.filter { it.partialMerkleTree != null }.map { it.partialMerkleTree!!.verify(it.partialMerkleTree.root, mutableListOf()) }
         return partialMerkleTree.verify(id, groupHashes)
     }
+
+    /**
+     * Function that checks the whole filtered structure.
+     * Force type checking on a structure that we obtained, so we don't sign more than expected.
+     * Example: Oracle is implemented to check only for commands, if it gets an attachment and doesn't expect it - it can sign
+     * over a transaction with the attachment that wasn't verified. Of course it depends on how you implement it, but else -> false
+     * should solve a problem with possible later extensions to WireTransaction.
+     * @param checkingFun function that performs type checking on the structure fields and provides verification logic accordingly.
+     * @returns false if no elements were matched on a structure or checkingFun returned false.
+     */
+    fun checkWithFun(checkingFun: (Any) -> Boolean): Boolean {
+        val checkList = availableComponentGroups.flatten().map { checkingFun(it) }
+        return (!checkList.isEmpty()) && checkList.all { it }
+    }
 }
 
 /**
@@ -253,8 +199,7 @@ class FilteredTransaction private constructor(
  * This is similar to [ComponentGroup], but it also includes the corresponding nonce per component.
  */
 @CordaSerializable
-data class FilteredComponentGroup(val components: List<OpaqueBytes>, val nonces: List<SecureHash>, val partialMerkleTree: PartialMerkleTree?) {
-
+data class FilteredComponentGroup(override val components: List<OpaqueBytes>, val nonces: List<SecureHash>, val partialMerkleTree: PartialMerkleTree?): ComponentGroup(components) {
     /** A helper constructor to create empty filtered component groups. */
     constructor() : this(emptyList(), emptyList(), null)
 

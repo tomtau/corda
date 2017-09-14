@@ -122,8 +122,7 @@ class CompatibleTransactionTests : TestDependencyInjectionBase() {
         // The old client (receiving more component types than expected, even if empty) is still compatible.
         val wireTransactionCompatibleB = WireTransaction(componentGroupsCompatibleB, privacySalt)
         assertEquals(wireTransactionCompatibleB.inputs, wireTransactionA.inputs)
-        assertEquals(wireTransactionCompatibleB.id, wireTransactionA.id) // Although the last component is empty, transactions ids are not equal.
-        assertNotEquals(wireTransactionCompatibleB, wireTransactionA) // Although the last component is empty, transactions are not equal.
+        assertEquals(wireTransactionCompatibleB, wireTransactionA) // Although the last component is empty, transactions ids are equal.
         assertEquals(7, wireTransactionCompatibleB.componentGroups.size)
 
         // We expect at least 6 component types (excluding privacySalt).
@@ -136,7 +135,6 @@ class CompatibleTransactionTests : TestDependencyInjectionBase() {
 
     @Test
     fun `FilteredTransaction constructors and compatibility`() {
-
         val ftxNothing = wireTransactionA.buildFilteredTransaction(Predicate { false }) // Nothing filtered.
         val ftxAll = wireTransactionA.buildFilteredTransaction(Predicate { true }) // All filtered.
 
@@ -148,9 +146,9 @@ class CompatibleTransactionTests : TestDependencyInjectionBase() {
         }
         val ftxInputs = wireTransactionA.buildFilteredTransaction(Predicate(::filtering)) // Inputs only filtered.
 
-        assertEquals(ftxNothing.filteredLeaves, wireTransactionA.buildFilteredTransaction(Predicate{ false }).filteredLeaves)
-        assertEquals(ftxAll.filteredLeaves, wireTransactionA.buildFilteredTransaction(Predicate{ true }).filteredLeaves)
-        assertEquals(ftxInputs.filteredLeaves, wireTransactionA.buildFilteredTransaction(Predicate(::filtering)).filteredLeaves)
+        assertEquals(ftxNothing.inputs, wireTransactionA.buildFilteredTransaction(Predicate{ false }).inputs)
+        assertEquals(ftxAll.outputs, wireTransactionA.buildFilteredTransaction(Predicate{ true }).outputs)
+        assertEquals(ftxInputs.inputs, wireTransactionA.buildFilteredTransaction(Predicate(::filtering)).inputs)
 
         assertEquals(6, ftxInputs.filteredComponentGroups.size)
         assertEquals(3, ftxInputs.filteredComponentGroups[0].components.size)
@@ -174,7 +172,7 @@ class CompatibleTransactionTests : TestDependencyInjectionBase() {
         val wireTransactionCompatibleA = WireTransaction(componentGroupsCompatibleA, privacySalt)
         val ftxCompatible = wireTransactionCompatibleA.buildFilteredTransaction(Predicate(::filtering))
 
-        assertEquals(ftxInputs.filteredLeaves, ftxCompatible.filteredLeaves)
+        assertEquals(ftxInputs.inputs, ftxCompatible.inputs)
         assertNotEquals(ftxInputs.id, ftxCompatible.id)
         assertNotEquals(ftxInputs.filteredComponentGroups, ftxCompatible.filteredComponentGroups)
         assertEquals(wireTransactionCompatibleA.id, ftxCompatible.id)

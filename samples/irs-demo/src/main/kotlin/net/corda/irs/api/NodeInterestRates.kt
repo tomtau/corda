@@ -148,7 +148,7 @@ object NodeInterestRates {
             if (!ftx.verify()) {
                 throw MerkleTreeException("Rate Fix Oracle: Couldn't verify partial Merkle tree.")
             }
-            // Performing validation of obtained FilteredLeaves.
+            // Performing validation of obtained filtered components.
             fun commandValidator(elem: Command<*>): Boolean {
                 if (!(identity.owningKey in elem.signers && elem.value is Fix))
                     throw IllegalArgumentException("Oracle received unknown command (not in signers or not Fix).")
@@ -166,8 +166,7 @@ object NodeInterestRates {
                 }
             }
 
-            val leaves = ftx.filteredLeaves
-            if (!leaves.checkWithFun(::check))
+            if (!ftx.checkWithFun(::check))
                 throw IllegalArgumentException()
 
             // It all checks out, so we can return a signature.
