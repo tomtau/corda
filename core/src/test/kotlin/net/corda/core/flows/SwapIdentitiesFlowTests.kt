@@ -12,6 +12,7 @@ import net.corda.testing.BOB
 import net.corda.testing.DUMMY_NOTARY
 import net.corda.testing.node.MockNetwork
 import org.junit.Test
+import java.util.*
 import kotlin.test.*
 
 class SwapIdentitiesFlowTests {
@@ -88,12 +89,13 @@ class SwapIdentitiesFlowTests {
         val mockNet = MockNetwork(false, true)
 
         // Set up values we'll need
+        val fixedRand = Random(20170914L)
         val notaryNode = mockNet.createNotaryNode(null, DUMMY_NOTARY.name)
         val aliceNode = mockNet.createPartyNode(notaryNode.network.myAddress, ALICE.name)
         val bobNode = mockNet.createPartyNode(notaryNode.network.myAddress, BOB.name)
         val bob: Party = bobNode.services.myInfo.legalIdentity
-        val nonce = ByteArray(1) { 0 }
-        val wrongNonce = ByteArray(1) { Byte.MAX_VALUE }
+        val nonce = ByteArray(SwapIdentitiesFlow.NONCE_SIZE_BYTES) { 0 }.apply(fixedRand::nextBytes)
+        val wrongNonce = ByteArray(SwapIdentitiesFlow.NONCE_SIZE_BYTES) { 0 }.apply(fixedRand::nextBytes)
         // Check that the right signing key but the wrong nonce is rejected
         bobNode.database.transaction {
             bobNode.services.keyManagementService.freshKeyAndCert(bobNode.services.myInfo.legalIdentityAndCert, false)
