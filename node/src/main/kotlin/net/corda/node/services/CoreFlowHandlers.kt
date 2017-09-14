@@ -1,7 +1,6 @@
 package net.corda.node.services
 
 import co.paralleluniverse.fibers.Suspendable
-import net.corda.core.crypto.DigitalSignature
 import net.corda.core.crypto.secureRandomBytes
 import net.corda.core.flows.*
 import net.corda.core.identity.Party
@@ -65,11 +64,11 @@ class SwapIdentitiesHandler(val otherSide: Party, val revocationEnabled: Boolean
         progressTracker.currentStep = SENDING_KEY
         val legalIdentityAnonymous = serviceHub.keyManagementService.freshKeyAndCert(serviceHub.myInfo.legalIdentityAndCert, revocationEnabled)
         val serializedIdentity = SerializedBytes<PartyAndCertificate>(legalIdentityAnonymous.serialize().bytes)
-        val data = SwapIdentitiesFlow.buildDataToSign(serializedIdentity, theirNonce)
+        val data = SwapIdentitiesFlow.buildDataToSign(serializedIdentity, ourNonce, theirNonce)
         val ourSig = serviceHub.keyManagementService.sign(data, legalIdentityAnonymous.owningKey)
         sendAndReceive<SwapIdentitiesFlow.IdentityWithSignature>(otherSide, SwapIdentitiesFlow.IdentityWithSignature(serializedIdentity, ourSig.withoutKey()))
                 .unwrap { (confidentialIdentity, theirSigBytes) ->
-                    SwapIdentitiesFlow.validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentity, ourNonce, theirSigBytes)
+                    SwapIdentitiesFlow.validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentity, ourNonce, theirNonce, theirSigBytes)
                 }
     }
 }
