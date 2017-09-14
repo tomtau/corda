@@ -10,6 +10,7 @@ import net.corda.core.serialization.serialize
 import net.corda.core.transactions.SignedTransaction
 import net.corda.core.utilities.ProgressTracker
 import net.corda.core.utilities.unwrap
+import java.util.TreeSet
 
 // TODO: We should have a whitelist of contracts we're willing to accept at all, and reject if the transaction
 //       includes us in any outside that list. Potentially just if it includes any outside that list at all.
@@ -60,15 +61,19 @@ class SwapIdentitiesHandler(val otherSide: Party, val revocationEnabled: Boolean
     override fun call(): Unit {
         val ourNonce = secureRandomBytes(SwapIdentitiesFlow.NONCE_SIZE_BYTES)
         val theirNonce = sendAndReceive<ByteArray>(otherSide, ourNonce).unwrap(SwapIdentitiesFlow.NonceVerifier)
+        val nonces = TreeSet(SwapIdentitiesFlow.ArrayComparator).apply {
+            add(ourNonce)
+            add(theirNonce)
+        }
         val revocationEnabled = false
         progressTracker.currentStep = SENDING_KEY
         val legalIdentityAnonymous = serviceHub.keyManagementService.freshKeyAndCert(serviceHub.myInfo.legalIdentityAndCert, revocationEnabled)
         val serializedIdentity = SerializedBytes<PartyAndCertificate>(legalIdentityAnonymous.serialize().bytes)
-        val data = SwapIdentitiesFlow.buildDataToSign(serializedIdentity, ourNonce, theirNonce)
+        val data = SwapIdentitiesFlow.buildDataToSign(serializedIdentity, nonces)
         val ourSig = serviceHub.keyManagementService.sign(data, legalIdentityAnonymous.owningKey)
         sendAndReceive<SwapIdentitiesFlow.IdentityWithSignature>(otherSide, SwapIdentitiesFlow.IdentityWithSignature(serializedIdentity, ourSig.withoutKey()))
                 .unwrap { (confidentialIdentity, theirSigBytes) ->
-                    SwapIdentitiesFlow.validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentity, ourNonce, theirNonce, theirSigBytes)
+                    SwapIdentitiesFlow.validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentity, nonces, theirSigBytes)
                 }
     }
 }
