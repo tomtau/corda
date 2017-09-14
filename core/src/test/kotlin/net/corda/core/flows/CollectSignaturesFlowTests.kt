@@ -39,8 +39,8 @@ class CollectSignaturesFlowTests {
         a = nodes.partyNodes[0]
         b = nodes.partyNodes[1]
         c = nodes.partyNodes[2]
-        notary = nodes.notaryNode.info.legalIdentities.first()
         mockNet.runNetwork()
+        notary = a.services.networkMapCache.notaryIdentities.first().party
         a.internals.ensureRegistered()
     }
 

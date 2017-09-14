@@ -55,7 +55,7 @@ class ContractUpgradeFlowTest {
         mockNet.runNetwork()
         a.internals.ensureRegistered()
 
-        notary = nodes.notaryNode.services.notaryIdentity
+        notary = a.services.networkMapCache.notaryIdentities.first()
         a.database.transaction {
             a.services.identityService.verifyAndRegisterIdentity(notary)
         }
