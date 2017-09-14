@@ -46,12 +46,12 @@ class SwapIdentitiesFlow(val otherSide: Party,
                                         otherSide: Party,
                                         anonymousOtherSideBytes: SerializedBytes<PartyAndCertificate>,
                                         nonce: ByteArray,
-                                        sigBytes: ByteArray): PartyAndCertificate {
+                                        sigBytes: DigitalSignature): PartyAndCertificate {
             val anonymousOtherSide: PartyAndCertificate = anonymousOtherSideBytes.deserialize()
             if (anonymousOtherSide.name != otherSide.name) {
                 throw SwapIdentitiesException("Certificate subject must match counterparty's well known identity.")
             }
-            val signature = DigitalSignature.WithKey(anonymousOtherSide.owningKey, sigBytes)
+            val signature = DigitalSignature.WithKey(anonymousOtherSide.owningKey, sigBytes.bytes)
             val sigWithKey = DigitalSignature.WithKey(anonymousOtherSide.owningKey, signature.bytes)
             try {
                 sigWithKey.verify(buildDataToSign(anonymousOtherSideBytes, nonce))
@@ -78,10 +78,12 @@ class SwapIdentitiesFlow(val otherSide: Party,
             val ourNonce = secureRandomBytes(NONCE_SIZE_BYTES)
             val theirNonce = sendAndReceive<ByteArray>(otherSide, ourNonce).unwrap(NonceVerifier)
             val data = buildDataToSign(serializedIdentity, theirNonce)
-            val ourSig: DigitalSignature = serviceHub.keyManagementService.sign(data, legalIdentityAnonymous.owningKey)
-            val anonymousOtherSide = sendAndReceive<IdentityWithSignature>(otherSide, IdentityWithSignature(serializedIdentity, ourSig.bytes)).unwrap { (confidentialIdentityBytes, theirSigBytes) ->
-                validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentityBytes, ourNonce, theirSigBytes)
-            }
+            val ourSig: DigitalSignature.WithKey = serviceHub.keyManagementService.sign(data, legalIdentityAnonymous.owningKey)
+            val ourIdentWithSig = IdentityWithSignature(serializedIdentity, ourSig.withoutKey())
+            val anonymousOtherSide = sendAndReceive<IdentityWithSignature>(otherSide, ourIdentWithSig)
+                    .unwrap { (confidentialIdentityBytes, theirSigBytes) ->
+                        validateAndRegisterIdentity(serviceHub.identityService, otherSide, confidentialIdentityBytes, ourNonce, theirSigBytes)
+                    }
             identities.put(serviceHub.myInfo.legalIdentity, legalIdentityAnonymous.party.anonymise())
             identities.put(otherSide, anonymousOtherSide.party.anonymise())
         }
@@ -89,7 +91,7 @@ class SwapIdentitiesFlow(val otherSide: Party,
     }
 
     @CordaSerializable
-    data class IdentityWithSignature(val identity: SerializedBytes<PartyAndCertificate>, val signature: ByteArray)
+    data class IdentityWithSignature(val identity: SerializedBytes<PartyAndCertificate>, val signature: DigitalSignature)
 
     object NonceVerifier : UntrustworthyData.Validator<ByteArray, ByteArray> {
         override fun validate(data: ByteArray): ByteArray {
